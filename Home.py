@@ -13,6 +13,11 @@ import nltk
 import string
 from charset_normalizer import from_path
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import TruncatedSVD, LatentDirichletAllocation
+from textblob import TextBlob
+import textstat
+
+
 import pickle
 nltk.download('punkt')
 nltk.download('stopwords')
@@ -40,8 +45,32 @@ def lemmatize_text(text):
 def load_tfidf_vectorizer():
     with open('models/tfidf_vectorizer.pkl', 'rb') as f:
         return pickle.load(f)
+    
+@st.cache_resource
+def load_lsa():
+    with open('models/lsa.pkl', 'rb') as f:
+        return pickle.load(f)
+    
+@st.cache_resource
+def load_lda():
+    with open('models/lda.pkl', 'rb') as f:
+        return pickle.load(f)
+    
+@st.cache_resource
+def load_counts():
+    with open('models/counts.pkl', 'rb') as f:
+        return pickle.load(f)
+
+def sentiment_features(text):
+    blob = TextBlob(text)
+    return pd.Series({'polarity': blob.sentiment.polarity, 'subjectivity': blob.sentiment.subjectivity})
+
         
 tfidf = load_tfidf_vectorizer()
+lsa = load_lsa()
+lda = load_lda()
+counts = load_counts()
+
 # scaler = StandardScaler()
 
 genre_list = ['Action', 'Adventure', 'Animation', 'Biography', 'Comedy', 'Crime', 'Drama', 'Family', 'Fantasy', 'Film-Noir', 'History', 'Horror', 'Music', 'Musical', 'Mystery', 'Romance', 'Sci-Fi', 'Sport', 'Thriller', 'War', 'Western']
@@ -72,14 +101,27 @@ if st.button("Run Model"):
         raw_text = uploaded_file.read().decode("utf-8")
         clean_text = raw_text.replace(r'\s+', ' ').strip().lower()
         lem_text = lemmatize_text(remove_stopwords(remove_punctuation(clean_text)))
+        
         tfidf_text = tfidf.transform([lem_text])
         st.write(f'Shape of TF-IDF vectorized script: {tfidf_text.shape}')
+
+        lsa_text = lsa.transform(tfidf_text)
+
+        count_text = counts.transform([clean_text])
+        lda_text = lda.transform(count_text)
 
         df_genre = pd.DataFrame([[genre in genres for genre in genre_list]], columns=genre_columns, dtype=int)
         df_age = pd.DataFrame([[age in age_rating for age in age_list]], columns=age_columns, dtype=int)
         df = pd.concat([df_age, df_genre], axis=1)
         df['production_budget'] = production_budget
         # scaling of production budget needs to be done!
+
+        df['flesch_reading_ease'] = textstat.flesch_reading_ease(clean_text)
+        df['flesch_kincaid_grade'] = textstat.flesch_kincaid_grade(clean_text)
+    
+
+        df[['polarity', 'subjectivity']] = sentiment_features(clean_text)
+
         st.write(df)
 
 
