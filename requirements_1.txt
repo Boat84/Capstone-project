@@ -1,0 +1,14 @@
+pandas
+matplotlib
+streamlit
+seaborn
+plotly
+scikit-learn
+
+chardet
+nltk
+transformers
+torch
+plotly
+wordcloud
+gensim
