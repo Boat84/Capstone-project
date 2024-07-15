@@ -194,12 +194,12 @@ if st.button("Run Model"):
         st.write(df)
 
         #separate pred and ensemble
-        y_pred_tfidf = clf_tfidf.predict(tfidf_text)
-        y_pred_lsa = clf_lsa.predict(lsa_text)
-        y_pred_glove = clf_glove.predict(glove_text)
-        y_pred_combined = clf_combined.predict(df)
+        y_pred_tfidf = clf_tfidf.predict_proba(tfidf_text)
+        y_pred_lsa = clf_lsa.predict_proba(lsa_text)
+        y_pred_glove = clf_glove.predict_proba(glove_text)
+        y_pred_combined = clf_combined.predict_proba(df)
         X_stack = np.column_stack((y_pred_tfidf, y_pred_lsa, y_pred_glove, y_pred_combined))
-        y_pred_stack = clf_stack.predict(X_stack)
+        y_pred_stack = clf_stack.predict_proba(X_stack)
 
         st.write(y_pred_stack)
 
