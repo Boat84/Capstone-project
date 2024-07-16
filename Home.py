@@ -3,28 +3,26 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
-# import seaborn as sns
-# import plotly.express as px
 import numpy as np
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 import nltk
 import string
-from charset_normalizer import from_path
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.decomposition import TruncatedSVD, LatentDirichletAllocation
 from textblob import TextBlob
 import textstat
-from xgboost import XGBClassifier
 import re
 import networkx as nx
-
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import spacy
+import en_core_web_sm
+#install via python -m spacy download en_core_web_sm
 
 import pickle
 nltk.download('punkt')
 nltk.download('stopwords')
 nltk.download('wordnet')
+nlp = en_core_web_sm.load()
 
 lemmatizer = WordNetLemmatizer()
 stop_words = set(stopwords.words('english'))
@@ -73,7 +71,6 @@ def identify_scenes(text):
                 match_counter += 1
     
     return matches
-
 
 def get_scene_separated_text(scenes):
     scene_separated_text = f"Scene count: {len(scenes)}\n\n"
@@ -216,7 +213,46 @@ def process_scene_lengths(scene_separated_text):
     
     return coefficient_of_variation
 
+# Scene Sentiment summaries
+def classify_and_save_scenes(text):
+    # Open file 
+    scenes = text.split("==================================================")
+    analyzer = SentimentIntensityAnalyzer()
+    scene_scores = []
+    for i, scene in enumerate(scenes):
+        preprocessed_text = preprocess_text(scene)
+        scores = analyzer.polarity_scores(preprocessed_text)
+        scene_scores.append({
+            "Scene": i,
+            "Negative": scores['neg'],
+            "Neutral": scores['neu'],
+            "Positive": scores['pos'],
+            "Compound": scores['compound']
+        })
+    return scene_scores
 
+def preprocess_text(text):
+    # Remove all lines that include EXT or INT
+    lines = text.split('\n')
+    cleaned_lines = [line for line in lines if not line.strip().startswith(('EXT', 'INT'))]
+    cleaned_text = '\n'.join(cleaned_lines)
+    cleaned_text = re.sub(r'[^\w\s]', '', cleaned_text.lower())
+    tokens = word_tokenize(cleaned_text)
+    tokens = [token for token in tokens if token not in stop_words]
+    tokens = [lemmatizer.lemmatize(token) for token in tokens]
+    processed_text = ' '.join(tokens)
+    return processed_text
+
+def statistic_sentiment(scene_scores):
+    df_1 = pd.DataFrame(scene_scores)
+    average = df_1['Compound'].mean()
+    mean_squared_deviation = ((df_1['Compound'] - average) ** 2).mean()
+    compound_values = df_1['Compound'].values
+    sign_changes = np.sign(compound_values[:-1]) * np.sign(compound_values[1:])
+    num_turns = int(np.sum(sign_changes == -1))
+    scenes_count = len(df_1['Compound'])
+    rel_sent_turns = num_turns/scenes_count
+    return average, mean_squared_deviation, rel_sent_turns
 
 # Cleanup and lemmatization
 def remove_punctuation(text):
@@ -226,7 +262,6 @@ def remove_stopwords(text):
     words = word_tokenize(text)
     words = [word for word in words if word.lower() not in stop_words]
     return ' '.join(words)
-
 
 def lemmatize_text(text):
     words = word_tokenize(text)
@@ -309,7 +344,7 @@ def sentiment_features(text):
     blob = TextBlob(text)
     return pd.Series({'polarity': blob.sentiment.polarity, 'subjectivity': blob.sentiment.subjectivity})
 
-        
+#load all pickled models.        
 tfidf = load_tfidf_vectorizer()
 lsa = load_lsa()
 lda = load_lda()
@@ -322,16 +357,20 @@ clf_combined = load_clf_combined()
 clf_stack = load_clf_stack()
 scaler = load_scaler()
 
+# generate list of genres and ages to choose from 
 genre_list = ['Action', 'Adventure', 'Animation', 'Biography', 'Comedy', 'Crime', 'Drama', 'Family', 'Fantasy', 'Film-Noir', 'History', 'Horror', 'Music', 'Musical', 'Mystery', 'Romance', 'Sci-Fi', 'Sport', 'Thriller', 'War', 'Western']
 genre_columns = [f'genre_{genre.lower()}' for genre in genre_list]
-age_list = ['6', '13', '17', '18']
-age_columns = ['age_6', 'age_13', 'age_17', 'age_18']
+age_list = ['0', '6', '13', '17', '18']
+age_columns = ['age_0', 'age_6', 'age_13', 'age_17', 'age_18']
 
+# column scaler from model
 columns_to_scale = ['runtime_minutes', 'production_budget','average_degree_centrality',
 'average_closeness_centrality', 'average_betweenness_centrality',
 'average_interaction_diversity', 'normalized_interaction_coefficient',
 'scene_length_cv']
 
+
+#start of Streamlit gui
 st.title('Welcome to the Reel-Insights Movie Script Analysis and Success Prediction')
 
 st.image("https://i.imgur.com/C3uwvp4.jpeg", width=300)
@@ -344,7 +383,7 @@ uploaded_file = st.file_uploader("Choose a script file", type="txt")
 # Metadata inputs
 production_budget = st.number_input('Production Budget in US$', step=500, min_value=0)
 genres = st.multiselect('Genre (max. 3)', genre_list, max_selections=3 )
-director = st.multiselect('Director',[1,2,3])
+# director = st.multiselect('Director',[1,2,3])
 age_rating = st.selectbox('Age Rating', age_list)
 run_time = st.slider(label='Runtime in min', min_value=10, max_value=240, step=5)
 
@@ -353,38 +392,41 @@ if st.button("Run Model"):
         raw_text = uploaded_file.read().decode("utf-8")
         scene_separated_text = process_screenplay(raw_text)
         df_screenplay_metrics = calculate_screenplay_metrics(raw_text)
-        st.write(df_screenplay_metrics)
-        
-
+        processed_results = classify_and_save_scenes(scene_separated_text)               
         clean_text = raw_text.replace(r'\s+', ' ').strip().lower()
         lem_text = lemmatize_text(remove_stopwords(remove_punctuation(clean_text)))
         
+        #tfidf and lsa
         tfidf_text = tfidf.transform([lem_text])      
         lsa_text = lsa.transform(tfidf_text)
-
+        #lda
         count_text = counts.transform([clean_text])
         lda_text = lda.transform(count_text)
         lda_columns = [f'topic_{i}' for i in range(lda_text.shape[1])]
         df_lda = pd.DataFrame(lda_text, columns=lda_columns)
 
-
+        #glove embedding
         df_clean = pd.DataFrame({'clean':[clean_text]})
         glove_text = np.vstack(df_clean['clean'].apply(lambda x: get_script_embedding(x, embeddings_index)).values)
 
+        #user input into df
         df_genre = pd.DataFrame([[genre in genres for genre in genre_list]], columns=genre_columns, dtype=int)
         df_age = pd.DataFrame([[age in age_rating for age in age_list]], columns=age_columns, dtype=int)
+        df_age.drop('age_0',axis=1, inplace=True)
         df = pd.concat([df_age, df_genre], axis=1)
-        #scale production budget
         df['production_budget'] = production_budget
         df['runtime_minutes'] = run_time
         df['scene_length_cv'] = process_scene_lengths(scene_separated_text)
         
-        # scaling of production budget needs to be done!
+        # Scene Sentiment summaries
+        df[['sentiment_score_average', 'sentiment_score_mean_squared_deviation', 'rel_sent_turns',]] = statistic_sentiment(processed_results)
+        # reading ease
         df['flesch_reading_ease'] = textstat.flesch_reading_ease(clean_text)
         df['flesch_kincaid_grade'] = textstat.flesch_kincaid_grade(clean_text)  
         df[['polarity', 'subjectivity']] = sentiment_features(clean_text)
         df = pd.concat([df, df_lda, df_screenplay_metrics], axis=1)
 
+        #scaling columns
         df[columns_to_scale] = scaler.transform(df[columns_to_scale])
         #order columns
         cols_when_model_builds = clf_combined.get_booster().feature_names
@@ -392,7 +434,7 @@ if st.button("Run Model"):
 
         st.write(df)
 
-        #separate pred and ensemble
+        # separate pred of probabilities and ensemble
         y_pred_tfidf = clf_tfidf.predict_proba(tfidf_text)
         y_pred_lsa = clf_lsa.predict_proba(lsa_text)
         y_pred_glove = clf_glove.predict_proba(glove_text)
