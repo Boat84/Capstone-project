@@ -1,5 +1,3 @@
-#import std libraries
-
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
@@ -16,12 +14,42 @@ import networkx as nx
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import spacy
 import en_core_web_sm
-#install via python -m spacy download en_core_web_sm
-
+import styles
 import pickle
-nltk.download('punkt')
-nltk.download('stopwords')
-nltk.download('wordnet')
+import plotly.graph_objects as go
+
+# Set Streamlit page configuration
+st.set_page_config(**styles.set_page_config())
+
+# Set overall page background image
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background-image: url("https://i.ibb.co/bdVswk3/movie-background-collage-23-2149876005.jpg");
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }
+    [data-testid="stSidebar"] {
+        background-color: rgba(0, 0, 0, 0.5); 
+        color: white;
+        }
+    .big-title {
+        font-size: 100px;
+        font-weight: bold;
+        color: #FFF8F3;
+        font-family: 'Cinzel';
+        text-align: center;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown('<h1 class="big-title">R E E L - I N S I G H T S</h1>', unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: white;'>Make Your Movie a Success</h1>", unsafe_allow_html=True)
+
 nlp = en_core_web_sm.load()
 
 lemmatizer = WordNetLemmatizer()
@@ -300,7 +328,7 @@ def load_glove_embeddings(file_path):
             embeddings_index[word] = coefs
     return embeddings_index
 
-embeddings_index = load_glove_embeddings('data/glove.6B/glove.6B.300d.txt')
+embeddings_index = load_glove_embeddings('C:/Users/vandi/Documents/neue fische/REEL-INSIGHTS/glove.6B.300d.txt')
 
 def get_script_embedding(script, embeddings_index, embedding_dim=300):
     words = script.split()
@@ -369,15 +397,17 @@ columns_to_scale = ['runtime_minutes', 'production_budget','average_degree_centr
 'average_interaction_diversity', 'normalized_interaction_coefficient',
 'scene_length_cv']
 
+st.header('Upload Your Screenplay')
 
-#start of Streamlit gui
-st.title('Welcome to the Reel-Insights Movie Script Analysis and Success Prediction')
+uploaded_file = st.file_uploader("Choose a text file", type="txt")
 
-st.image("https://i.imgur.com/C3uwvp4.jpeg", width=300)
-
-st.header('Upload your Script')
-
-uploaded_file = st.file_uploader("Choose a script file", type="txt")
+if uploaded_file is not None:
+    
+    # Store the uploaded file in session state
+    st.session_state['uploaded_file'] = uploaded_file
+    st.session_state['file_uploaded'] = True
+else:
+    st.session_state['file_uploaded'] = False
 
 
 # Metadata inputs
@@ -387,8 +417,9 @@ genres = st.multiselect('Genre (max. 3)', genre_list, max_selections=3 )
 age_rating = st.selectbox('Age Rating', age_list)
 run_time = st.slider(label='Runtime in min', min_value=10, max_value=240, step=5)
 
-if st.button("Run Model"):
+if st.button("Get Success Prediction"):
     if uploaded_file is not None:
+        
         raw_text = uploaded_file.read().decode("utf-8")
         scene_separated_text = process_screenplay(raw_text)
         df_screenplay_metrics = calculate_screenplay_metrics(raw_text)
@@ -432,8 +463,6 @@ if st.button("Run Model"):
         cols_when_model_builds = clf_combined.get_booster().feature_names
         df = df[cols_when_model_builds]
 
-        st.write(df)
-
         # separate pred of probabilities and ensemble
         y_pred_tfidf = clf_tfidf.predict_proba(tfidf_text)
         y_pred_lsa = clf_lsa.predict_proba(lsa_text)
@@ -442,16 +471,66 @@ if st.button("Run Model"):
         X_stack = np.column_stack((y_pred_tfidf, y_pred_lsa, y_pred_glove, y_pred_combined))
         y_pred_stack = clf_stack.predict_proba(X_stack)
 
-        st.write(y_pred_stack)
+        # Extract probabilities
+        minority_class_prob = y_pred_stack[0][0]
+        majority_class_prob = y_pred_stack[0][1]
+
+        # Convert probabilities to percentages
+        minority_class_percent = minority_class_prob * 100
+        majority_class_percent = majority_class_prob * 100
+
+        fig = go.Figure()
+
+        fig.add_trace(go.Bar(
+            y=[''],
+            x=[minority_class_percent],
+            orientation='h',
+            name='Failure',
+            marker=dict(color='#DC0083'),
+            text=f'{minority_class_percent:.2f}%',
+            textposition='inside',
+            textfont=dict(size=48)
+        ))
+
+        fig.add_trace(go.Bar(
+            y=[''],
+            x=[majority_class_percent],
+            orientation='h',
+            name='Success',
+            marker=dict(color='#6C946F'),
+            text=f'{majority_class_percent:.2f}%',
+            textposition='inside',
+            textfont=dict(size=48, color='white')
+        ))
+
+        # Update layout
+        fig.update_layout(
+            barmode='stack',
+            showlegend=False,
+            xaxis=dict(
+                showgrid=False,
+                showticklabels=False,
+                zeroline=False,
+                range=[0, 100]
+            ),
+            yaxis=dict(
+                showgrid=False,
+                showticklabels=False,
+                zeroline=False
+            ),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            margin=dict(l=0, r=0, t=0, b=0),
+            width=1745,
+            height=300
+        )
+
+        # Display the bar chart in Streamlit
+        st.plotly_chart(fig)
 
 
+        # Add the success message
+        st.title(f'Your movie has a {majority_class_percent:.2f}% chance of success at the box office.')
 
 else:
-    st.write("Click on \'Run Model\' to start")
-
-
-
-
-
-
-
+    st.write("")
