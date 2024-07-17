@@ -328,7 +328,7 @@ def load_glove_embeddings(file_path):
             embeddings_index[word] = coefs
     return embeddings_index
 
-embeddings_index = load_glove_embeddings('C:/Users/vandi/Documents/neue fische/REEL-INSIGHTS/glove.6B.300d.txt')
+embeddings_index = load_glove_embeddings('data/glove.6B.300d.txt')
 
 def get_script_embedding(script, embeddings_index, embedding_dim=300):
     words = script.split()
